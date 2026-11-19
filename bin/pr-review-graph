@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""Pre-extract a GitNexus call-graph digest of a diff, for the pr-review-* agents.
+
+Refreshes the GitNexus index of the working tree (`analyze --index-only`: no AGENTS.md /
+CLAUDE.md / skills writes), maps the diff's hunks to the functions/methods/classes they touch,
+and writes one file listing each changed symbol's callers and callees plus import cycles. The
+agents read that file instead of grepping their way to the same facts one turn at a time.
+
+Never fails the review: any problem writes a one-line "unavailable" file and exits 0.
+
+Usage: pr-review-graph --base <merge-base sha> --out <file> [--root <repo dir>]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from collections import defaultdict
+from pathlib import Path
+
+ANALYZE_TIMEOUT_S = 600
+QUERY_TIMEOUT_S = 120
+MAX_SYMBOLS = 200
+MAX_CALLERS_SHOWN = 12
+HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+CAVEATS = """\
+How to use this file (static analysis, not ground truth):
+- Callers/callees come from GitNexus' static resolution. Calls through a Protocol, a callback,
+  getattr, or a registry are often missing, so a caller list is a LOWER BOUND. Absence of an edge
+  is not proof there is no call: grep before relying on it.
+- `conf` below 0.8 is a heuristic match (name-based); confirm by reading the call site.
+- "Unchanged callees" are the functions the changed code calls but the diff does not touch. That
+  is where "unchanged code with new callers" bugs live: read each body and check its assumptions
+  still hold for the changed caller.
+- Import cycles are repo-wide; ones touching a changed file are marked. The rest are pre-existing.
+"""
+
+
+def gitnexus_cmd() -> list[str] | None:
+    if exe := shutil.which("gitnexus"):
+        return [exe]
+    if npx := shutil.which("npx"):
+        return [npx, "-y", "gitnexus"]
+    return None
+
+
+def run(cmd: list[str], cwd: Path, timeout: int) -> str:
+    # stdout goes to a file, not a pipe: the gitnexus CLI exits before a pipe drains and
+    # truncates its output at 64 KiB.
+    with tempfile.TemporaryFile("w+") as out:
+        proc = subprocess.run(
+            cmd, cwd=cwd, stdout=out, stderr=subprocess.PIPE, text=True, timeout=timeout
+        )
+        out.seek(0)
+        stdout = out.read()
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, cmd, stdout, proc.stderr)
+    return stdout
+
+
+def changed_ranges(root: Path, base: str) -> dict[str, list[tuple[int, int]]]:
+    """New-side line ranges per file: diff vs base (commits + staged + unstaged) + untracked."""
+    ranges: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    path = None
+    for line in run(["git", "diff", "-U0", "--no-color", base], root, 60).splitlines():
+        if line.startswith("+++ "):
+            path = None if line == "+++ /dev/null" else line[6:]
+        elif path and (m := HUNK.match(line)):
+            start, count = int(m.group(1)), int(m.group(2) or 1)
+            ranges[path].append((start, start + max(count, 1) - 1))  # count 0 = pure deletion
+    untracked = run(["git", "ls-files", "--others", "--exclude-standard"], root, 60)
+    for f in untracked.splitlines():
+        if not f.startswith(".gitnexus/"):
+            ranges[f].append((1, 10**9))
+    return ranges
+
+
+def cypher(gn: list[str], root: Path, query: str) -> list[list[str]]:
+    out = run([*gn, "cypher", "-r", str(root), "-l", "100000", query], root, QUERY_TIMEOUT_S)
+    payload = json.loads(out[out.index("{") :])
+    if "error" in payload:
+        raise RuntimeError(payload["error"])
+    rows = payload.get("markdown", "").splitlines()[2:]
+    return [[c.strip() for c in r.strip().strip("|").split(" | ")] for r in rows]
+
+
+def quoted(values: list[str]) -> str:
+    return "[" + ",".join("'" + v + "'" for v in values if "'" not in v) + "]"
+
+
+def innermost_changed(
+    symbols: list[list[str]], ranges: dict[str, list[tuple[int, int]]]
+) -> list[list[str]]:
+    """Attribute each changed line range to the smallest symbol that encloses it."""
+    by_file: dict[str, list[list[str]]] = defaultdict(list)
+    for s in symbols:
+        by_file[s[3]].append(s)
+    hit: dict[str, list[str]] = {}
+    for f, spans in ranges.items():
+        for lo, hi in spans:
+            enclosing = [
+                s for s in by_file.get(f, []) if int(s[4]) <= hi and lo <= int(s[5])
+            ]
+            if not enclosing:
+                continue
+            smallest = min(int(s[5]) - int(s[4]) for s in enclosing)
+            for s in enclosing:
+                if int(s[5]) - int(s[4]) == smallest or s[0] != "Class":
+                    hit[s[1]] = s
+    code = [s for s in hit.values() if not is_test(s[3])]  # test edits: not what the graph is for
+    return sorted(code, key=lambda s: (s[3], int(s[4])))[:MAX_SYMBOLS]
+
+
+def is_test(path: str) -> bool:
+    return "/tests/" in f"/{path}" or Path(path).name.startswith("test_")
+
+
+def short(path: str) -> str:
+    return path.split("/src/", 1)[-1]
+
+
+def build(gn: list[str], root: Path, base: str) -> str:
+    ranges = changed_ranges(root, base)
+    files = sorted(ranges)
+    symbols = cypher(
+        gn,
+        root,
+        f"MATCH (n) WHERE n.filePath IN {quoted(files)} "
+        "AND label(n) IN ['Function','Method','Class'] "
+        "RETURN label(n), n.id, n.name, n.filePath, n.startLine, n.endLine",
+    )
+    changed = innermost_changed(symbols, ranges)
+    ids = [s[1] for s in changed]
+    changed_ids = set(ids)
+    names = {s[1]: s[2] for s in changed}
+    calls = cypher(
+        gn,
+        root,
+        f"MATCH (a)-[r:CodeRelation]->(b) WHERE r.type='CALLS' AND a.id IN {quoted(ids)} "
+        "RETURN a.id, b.id, b.name, b.filePath, b.startLine, r.confidence",
+    )
+    callers = cypher(
+        gn,
+        root,
+        f"MATCH (a)-[r:CodeRelation]->(b) WHERE r.type='CALLS' AND b.id IN {quoted(ids)} "
+        "RETURN b.id, a.id, a.name, a.filePath, a.startLine, r.confidence",
+    )
+    out_by: dict[str, list[list[str]]] = defaultdict(list)
+    in_by: dict[str, list[list[str]]] = defaultdict(list)
+    unchanged_callees: dict[str, tuple[list[str], set[str]]] = {}
+    for r in calls:
+        out_by[r[0]].append(r)
+        if r[1] not in changed_ids:
+            unchanged_callees.setdefault(r[1], (r, set()))[1].add(names[r[0]])
+    seen: set[tuple[str, str, str, str]] = set()
+    for r in callers:
+        if (key := (r[0], r[2], r[3], r[4])) not in seen:  # one row per call site, not per edge
+            seen.add(key)
+            in_by[r[0]].append(r)
+
+    def ref(r: list[str]) -> str:
+        return f"{r[2]} ({short(r[3])}:{r[4]}, conf {r[5]})"
+
+    lines = [CAVEATS, f"Changed symbols: {len(changed)} in {len(files)} changed files.", ""]
+    lines.append("## Unchanged callees of changed code (read these bodies)")
+    for r, by in sorted(unchanged_callees.values(), key=lambda v: (v[0][3], v[0][4])):
+        lines.append(f"- {ref(r)} <- called by {', '.join(sorted(by))}")
+    if not unchanged_callees:
+        lines.append("  none resolved")
+    lines += ["", "## Changed symbols"]
+    for s in changed:
+        kind, sid, name, f, lo, hi = s
+        lines.append(f"### {kind} {name}  {f}:{lo}-{hi}")
+        every = sorted(in_by[sid], key=lambda r: (r[3], r[4]))
+        ins = [r for r in every if not is_test(r[3])]
+        tests = f", +{len(every) - len(ins)} in tests" if len(every) > len(ins) else ""
+        shown = ", ".join(ref(r) for r in ins[:MAX_CALLERS_SHOWN])
+        more = f" … +{len(ins) - MAX_CALLERS_SHOWN} more" if len(ins) > MAX_CALLERS_SHOWN else ""
+        lines.append(f"callers ({len(ins)}{tests}): {shown or 'none resolved'}{more}")
+        outs = sorted(out_by[sid], key=lambda r: (r[3], r[4]))
+        for label, keep in (("calls, unchanged", False), ("calls, changed", True)):
+            picked = [ref(r) for r in outs if (r[1] in changed_ids) is keep]
+            if picked:
+                lines.append(f"{label}: {', '.join(picked)}")
+    lines += ["", "## Import cycles", import_cycles(gn, root, set(files))]
+    return "\n".join(lines) + "\n"
+
+
+def import_cycles(gn: list[str], root: Path, files: set[str]) -> str:
+    try:
+        stdout = run([*gn, "check", "--cycles", "--json", "-r", str(root)], root, QUERY_TIMEOUT_S)
+    except subprocess.CalledProcessError as exc:
+        stdout = exc.output  # exits non-zero when cycles exist; that is a result, not an error
+    try:
+        report = json.loads(stdout[stdout.index("{") :])
+    except ValueError:
+        return "unavailable: no JSON from `gitnexus check`"
+    if report.get("status") == "clean":
+        return "none"
+    rendered = []
+    for cycle in report.get("cycles", []):
+        members = [m if isinstance(m, str) else json.dumps(m) for m in cycle]
+        touched = any(any(f in m for f in files) for m in members)
+        rendered.append(("[touches changed file] " if touched else "") + " -> ".join(members))
+    return f"components: {report.get('componentCount')}\n" + "\n".join(rendered)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--base", required=True)
+    ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--root", type=Path, default=Path.cwd())
+    args = ap.parse_args()
+    root = Path(run(["git", "rev-parse", "--show-toplevel"], args.root, 30).strip())
+
+    gn = gitnexus_cmd()
+    if gn is None:
+        args.out.write_text("Graph: unavailable (gitnexus and npx not found)\n")
+        return 0
+    try:
+        run([*gn, "analyze", "--index-only", str(root)], root, ANALYZE_TIMEOUT_S)
+        args.out.write_text(build(gn, root, args.base))
+    except (subprocess.SubprocessError, OSError, ValueError, RuntimeError) as exc:
+        detail = getattr(exc, "stderr", None) or str(exc)
+        args.out.write_text(f"Graph: unavailable ({str(detail).strip()[-300:]})\n")
+    print(args.out)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

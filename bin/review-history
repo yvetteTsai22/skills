@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""Find every Claude Code session that worked on a branch and extract the reviews it ran.
+
+Used by the review-miss retro (~/.claude/review-miss-retro.md). Reads transcripts under
+~/.claude/projects/*/*.jsonl, keeps sessions whose `gitBranch` matches, and writes:
+
+  <out>/sessions.md          one row per session: id, first/last timestamp, review commands run
+  <out>/reviews/<sid>-<n>.md the assistant text that followed each review command, up to the next
+                             slash command (the report that round produced), plus the agent
+                             prompts it launched (to see what each leg was actually told)
+
+Prints `REVIEW_HISTORY=<out>/sessions.md` and the count. Never fails the caller: errors go to
+sessions.md as `unavailable (...)`.
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+REVIEW_CMDS = ("pr-review", "pre-pr-review", "address-pr-comments", "code-review", "review-pr")
+CMD_RE = re.compile(r"<command-name>/?([^<]+)</command-name>(?:\s*<command-message>[^<]*</command-message>)?\s*(?:<command-args>([^<]*)</command-args>)?")
+MAX_REPORT = 60_000
+
+
+def _text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(x.get("text", "") for x in content if isinstance(x, dict) and x.get("type") == "text")
+    return ""
+
+
+def _agent_prompts(content: object) -> list[str]:
+    if not isinstance(content, list):
+        return []
+    out = []
+    for x in content:
+        if isinstance(x, dict) and x.get("type") == "tool_use" and x.get("name") in ("Agent", "Task"):
+            inp = x.get("input", {})
+            out.append(f"[{inp.get('subagent_type', '?')}] {inp.get('prompt', '')[:1500]}")
+    return out
+
+
+def scan(path: str, branch: str) -> dict | None:
+    rows = []
+    with open(path, errors="replace") as fh:
+        for line in fh:
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    if not any(branch in (r.get("gitBranch") or "") for r in rows):
+        return None
+    stamps = [r["timestamp"] for r in rows if r.get("timestamp")]
+    runs: list[dict] = []
+    cur: dict | None = None
+    for r in rows:
+        msg = r.get("message") or {}
+        if r.get("type") == "user":
+            m = CMD_RE.search(_text(msg.get("content")))
+            if m:
+                name = m.group(1).strip()
+                cur = None
+                if any(name.endswith(c) for c in REVIEW_CMDS):
+                    cur = {"cmd": name, "args": (m.group(2) or "").strip(), "ts": r.get("timestamp"), "text": [], "agents": []}
+                    runs.append(cur)
+                continue
+        if cur is not None and r.get("type") == "assistant":
+            t = _text(msg.get("content"))
+            if t.strip():
+                cur["text"].append(t)
+            cur["agents"].extend(_agent_prompts(msg.get("content")))
+    return {"id": Path(path).stem, "path": path, "first": min(stamps, default="?"), "last": max(stamps, default="?"), "runs": runs}
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--branch", required=True, help="branch name (substring match on gitBranch)")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--root", default=os.path.expanduser("~/.claude/projects"))
+    ap.add_argument("--exclude", default="", help="session id to skip (the current one)")
+    a = ap.parse_args()
+    out = Path(a.out)
+    (out / "reviews").mkdir(parents=True, exist_ok=True)
+    idx = out / "sessions.md"
+    try:
+        paths = [p for p in glob.glob(f"{a.root}/*/*.jsonl") if Path(p).stem != a.exclude]
+        found = [s for s in map(lambda p: scan(p, a.branch), paths) if s]
+    except OSError as e:
+        idx.write_text(f"unavailable ({e})\n")
+        print(f"REVIEW_HISTORY={idx}")
+        return 0
+    found.sort(key=lambda s: s["first"])
+    lines = [f"# Sessions on branch `{a.branch}` ({len(found)})", ""]
+    nrev = 0
+    for s in found:
+        lines.append(f"- `{s['id']}` {s['first']} → {s['last']}  ({s['path']})")
+        for i, run in enumerate(s["runs"]):
+            f = out / "reviews" / f"{s['id'][:8]}-{i}.md"
+            body = "\n\n".join(run["text"])[-MAX_REPORT:]
+            agents = "\n\n".join(run["agents"])
+            f.write_text(f"# /{run['cmd']} {run['args']}  ({run['ts']}, session {s['id']})\n\n"
+                         f"## Report / output\n\n{body}\n\n## Agent prompts launched\n\n{agents or 'none'}\n")
+            lines.append(f"  - {run['ts']} `/{run['cmd']} {run['args']}` → {f}")
+            nrev += 1
+    idx.write_text("\n".join(lines) + "\n")
+    print(f"REVIEW_HISTORY={idx}")
+    print(f"sessions={len(found)} review_runs={nrev}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

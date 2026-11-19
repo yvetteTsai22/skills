@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Read-only gh for review agents.
+#
+# Runs on the normal gh login, so the allowlist below is the only thing keeping it read-only:
+# anything not listed is refused. Review agents reach it only through ro_bash_guard.py, which
+# denies raw `gh`.
+set -euo pipefail
+
+die() { echo "ro-gh: $*" >&2; exit 2; }
+
+[ $# -ge 1 ] || die "usage: ro-gh <api|pr|issue|search|run|repo> ..."
+
+case "$1" in
+  api)
+    # gh api switches to POST when any field flag is given, so field flags are refused too.
+    for a in "${@:2}"; do
+      case "$a" in
+        -X|-X*|--method|--method=*|-f|-f*|-F|-F*|--field|--field=*|--raw-field|--raw-field=*|--input|--input=*)
+          die "write-capable flag refused: $a" ;;
+      esac
+    done
+    case "${2:-}" in graphql|/graphql) die "graphql refused (can carry mutations)" ;; esac
+    ;;
+  pr)     case "${2:-}" in view|diff|list|checks) ;; *) die "gh pr ${2:-} refused" ;; esac ;;
+  issue)  case "${2:-}" in view|list) ;; *) die "gh issue ${2:-} refused" ;; esac ;;
+  run)    case "${2:-}" in view|list) ;; *) die "gh run ${2:-} refused" ;; esac ;;
+  repo)   case "${2:-}" in view) ;; *) die "gh repo ${2:-} refused" ;; esac ;;
+  search) ;;
+  *) die "gh $1 refused" ;;
+esac
+
+# gh api has no GET-only mode; these flags turn it into a write or read a request body.
+exec env GH_PROMPT_DISABLED=1 gh "$@"

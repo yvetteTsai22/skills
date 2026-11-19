@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Run /pre-pr-review --loop one round per fresh `claude -p` process, so no round inherits the
+# previous round's context. Stops when the round writes next=done or next=stop.
+#
+# Usage: prepr-loop [PR number | base-branch] [--reset] [--max N]
+set -uo pipefail
+
+target=""; reset=""; max=6
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --reset) reset="--reset" ;;
+    --max) max=$2; shift ;;
+    *) target=$1 ;;
+  esac
+  shift
+done
+
+git_dir=$(git rev-parse --git-dir) || exit 1
+state="$git_dir/prepr-loop"
+log_dir="$state/logs"
+mkdir -p "$log_dir"
+
+for i in $(seq 1 "$max"); do
+  args="$target --loop"
+  [ "$i" = 1 ] && [ -n "$reset" ] && args="$args $reset"
+  echo "== prepr-loop: round $i ($args)"
+  claude -p "/pre-pr-review $args" --permission-mode auto > "$log_dir/round-$i.log" 2>&1
+  rc=$?
+  tail -n 3 "$log_dir/round-$i.log"
+  if [ "$rc" -ne 0 ]; then
+    echo "== prepr-loop: claude exited $rc; see $log_dir/round-$i.log"
+    exit "$rc"
+  fi
+  next=$(cat "$state/next" 2>/dev/null || echo missing)
+  case "$next" in
+    done) echo "== prepr-loop: clean after round $i"; exit 0 ;;
+    stop) echo "== prepr-loop: stopped for a decision; see $state/round-*.md"; exit 3 ;;
+    delta|gate) ;;
+    *) echo "== prepr-loop: round wrote no next state ($next); see $log_dir/round-$i.log"; exit 4 ;;
+  esac
+done
+echo "== prepr-loop: hit --max $max without a clean gate"
+exit 5

@@ -1,0 +1,425 @@
+{
+ "source": "~/Documents/screenshots/G1.mov",
+ "source_size": [
+  3024,
+  1964
+ ],
+ "out_width": 1300,
+ "fps": 12,
+ "product": "Acme Bot",
+ "dim": 0.35,
+ "ff_dim": 0.2,
+ "hold_last_s": 2.5,
+ "transition_s": 0.3,
+ "frames_dir": "~/Documents/screenshots/_work/g1/frames",
+ "outputs": {
+  "gif": "~/projects/my-app/docs/assets/stack-start.gif",
+  "mp4": "~/projects/my-app/docs/assets/stack-start.mp4"
+ },
+ "blur": [
+  {
+   "what": "assignee member list incl. emails",
+   "bbox": [
+    1136,
+    1244,
+    1612,
+    1888
+   ],
+   "t": [
+    4.85,
+    9.0
+   ]
+  }
+ ],
+ "segments": [
+  {
+   "t": [
+    4.0,
+    4.95
+   ],
+   "speed": 1,
+   "kind": "user",
+   "rect": [
+    1124,
+    720,
+    1336,
+    792
+   ],
+   "step": 1,
+   "text": "Delegate the parent to Acme Bot",
+   "side": "left",
+   "marks": [
+    {
+     "pt": [
+      1156,
+      756
+     ],
+     "from": 4.0
+    }
+   ]
+  },
+  {
+   "t": [
+    4.95,
+    8.85
+   ],
+   "speed": 1,
+   "kind": "user",
+   "rect": [
+    1116,
+    776,
+    1628,
+    1896
+   ],
+   "step": 1,
+   "text": "Delegate the parent to Acme Bot",
+   "side": "left",
+   "marks": [
+    {
+     "pt": [
+      1172,
+      1160
+     ],
+     "from": 6.4
+    }
+   ],
+   "anchor_y": 912
+  },
+  {
+   "t": [
+    8.85,
+    10.6
+   ],
+   "speed": 1,
+   "kind": "user",
+   "rect": [
+    1116,
+    524,
+    1648,
+    848
+   ],
+   "step": 1,
+   "text": "Delegate the parent to Acme Bot",
+   "side": "left",
+   "marks": [],
+   "done": "Done: Acme Bot delegated, you're assigned"
+  },
+  {
+   "t": [
+    10.6,
+    11.5
+   ],
+   "speed": 1,
+   "kind": "user",
+   "rect": [
+    1124,
+    528,
+    1320,
+    596
+   ],
+   "step": 2,
+   "text": "Move the parent to Todo",
+   "side": "left",
+   "marks": [
+    {
+     "pt": [
+      1152,
+      560
+     ],
+     "from": 10.6
+    }
+   ]
+  },
+  {
+   "t": [
+    11.5,
+    13.4
+   ],
+   "speed": 1,
+   "kind": "user",
+   "rect": [
+    1116,
+    524,
+    1544,
+    1148
+   ],
+   "step": 2,
+   "text": "Move the parent to Todo",
+   "side": "left",
+   "marks": [
+    {
+     "pt": [
+      1168,
+      784
+     ],
+     "from": 11.9
+    }
+   ],
+   "anchor_y": 784
+  },
+  {
+   "t": [
+    13.4,
+    15.0
+   ],
+   "speed": 1,
+   "kind": "user",
+   "rect": [
+    1116,
+    524,
+    1648,
+    848
+   ],
+   "step": 2,
+   "text": "Move the parent to Todo",
+   "side": "left",
+   "marks": [],
+   "done": "Done: the parent is now in Todo"
+  },
+  {
+   "t": [
+    15.0,
+    18.0
+   ],
+   "speed": 2,
+   "kind": "auto",
+   "rect": [
+    100,
+    1056,
+    1088,
+    1360
+   ],
+   "text": "Children are delegated and assigned to you",
+   "side": "below",
+   "marks": [
+    {
+     "pt": [
+      1016,
+      1176
+     ],
+     "from": 15.0
+    },
+    {
+     "pt": [
+      1016,
+      1248
+     ],
+     "from": 15.0
+    },
+    {
+     "pt": [
+      1016,
+      1320
+     ],
+     "from": 15.0
+    }
+   ]
+  },
+  {
+   "t": [
+    18.0,
+    19.25
+   ],
+   "speed": 3,
+   "kind": "auto",
+   "rect": [
+    100,
+    1056,
+    1088,
+    1360
+   ],
+   "text": "Children are delegated and assigned to you",
+   "side": "below",
+   "marks": []
+  },
+  {
+   "t": [
+    19.25,
+    23.5
+   ],
+   "speed": 1,
+   "kind": "auto",
+   "rect": [
+    728,
+    432,
+    1412,
+    1292
+   ],
+   "text": "Children move to Todo",
+   "side": "right",
+   "marks": [
+    {
+     "pt": [
+      1344,
+      572
+     ],
+     "from": 19.6
+    }
+   ]
+  },
+  {
+   "t": [
+    23.5,
+    33.4
+   ],
+   "speed": 10,
+   "kind": "plain"
+  },
+  {
+   "t": [
+    33.4,
+    36.0
+   ],
+   "speed": 1,
+   "kind": "auto",
+   "rect": [
+    840,
+    432,
+    1500,
+    772
+   ],
+   "text": "Child 1 starts",
+   "side": "below",
+   "marks": [
+    {
+     "pt": [
+      888,
+      612
+     ],
+     "from": 33.6
+    }
+   ]
+  },
+  {
+   "t": [
+    36.0,
+    38.6
+   ],
+   "speed": 4,
+   "kind": "auto",
+   "rect": [
+    840,
+    432,
+    1500,
+    772
+   ],
+   "text": "Child 1 starts",
+   "side": "below",
+   "marks": [
+    {
+     "pt": [
+      888,
+      612
+     ],
+     "from": 33.6
+    }
+   ]
+  },
+  {
+   "t": [
+    38.6,
+    41.6
+   ],
+   "speed": 1,
+   "kind": "auto",
+   "rect": [
+    1808,
+    1576,
+    2996,
+    1704
+   ],
+   "text": "Slack: Task Started",
+   "side": "left",
+   "marks": []
+  },
+  {
+   "t": [
+    41.6,
+    170.4
+   ],
+   "speed": 50,
+   "kind": "ff"
+  },
+  {
+   "t": [
+    170.4,
+    173.2
+   ],
+   "speed": 1,
+   "kind": "auto",
+   "rect": [
+    828,
+    424,
+    1792,
+    780
+   ],
+   "text": "Child 1 to review, child 2 starts",
+   "side": "below",
+   "marks": [
+    {
+     "pt": [
+      888,
+      612
+     ],
+     "from": 170.9
+    },
+    {
+     "pt": [
+      1564,
+      472
+     ],
+     "from": 170.9
+    }
+   ]
+  },
+  {
+   "t": [
+    173.2,
+    175.3
+   ],
+   "speed": 3,
+   "kind": "auto",
+   "rect": [
+    828,
+    424,
+    1792,
+    780
+   ],
+   "text": "Child 1 to review, child 2 starts",
+   "side": "below",
+   "marks": [
+    {
+     "pt": [
+      888,
+      612
+     ],
+     "from": 170.9
+    },
+    {
+     "pt": [
+      1564,
+      472
+     ],
+     "from": 170.9
+    }
+   ]
+  },
+  {
+   "t": [
+    175.3,
+    179.0
+   ],
+   "speed": 1,
+   "kind": "auto",
+   "rect": [
+    1808,
+    1592,
+    2996,
+    1700
+   ],
+   "text": "Slack: Task Started",
+   "side": "left",
+   "marks": []
+  }
+ ]
+}

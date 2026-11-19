@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""Pre-fetch the context a review needs from outside the diff, without touching any remote.
+
+Writes everything under --out and prints `EXTERNAL=<manifest>`. Review agents read the files;
+they never fetch anything themselves.
+
+Optional per-repo config: ~/.claude/review-context/<repo>.json
+  {
+    "related_repos": [{"path": "~/projects/other", "branch": "main"}]   # branch optional: default origin/HEAD,
+    "ticket_pattern": "MEE-[0-9]+",
+    "extra_context": ["docs/**/*.md", "**/*openapi*"]
+  }
+Without it: generic ticket pattern, CI / Dockerfile / docs discovered by convention, no related
+repos. Related repos are read with `git show origin/<branch>:<path>` from the local clone, so the
+snapshot is as fresh as that clone's last fetch (reported in the manifest).
+"""
+
+from __future__ import annotations
+
+import argparse
+import collections
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+DEFAULT_TICKET = r"[A-Z]{2,10}-[0-9]+"
+HISTORY_WORDS = r"\b(previously|used to|no longer|moved from|was renamed|shipped (on|in))\b"
+CONVENTION_GLOBS = [
+    ".github/workflows/*.yml",
+    ".github/workflows/*.yaml",
+    ".gitlab-ci.yml",
+    "**/Dockerfile*",
+    "image/*",
+    "docker-compose*.yml",
+]
+DOC_GLOBS = ["docs/**/*.md", "**/*openapi*", "**/*.tftpl", "README.md", "**/SKILL.md"]
+IDENT = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]{5,}\b")
+COMMON = {
+    "return", "import", "assert", "string", "object", "default", "self", "None", "True",
+    "False", "async", "await", "lambda", "typing", "Optional", "isinstance", "length",
+}
+MAX_IDENTS = 40
+MAX_FILES_PER_REPO = 40
+MAX_LINES_PER_FILE = 2000
+
+
+def git(args: list[str], cwd: str) -> str:
+    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else ""
+
+
+def changed_identifiers(diff: str) -> tuple[list[str], list[str]]:
+    """Identifiers on changed lines, most frequent first, and those only on removed lines."""
+    added: collections.Counter[str] = collections.Counter()
+    removed: collections.Counter[str] = collections.Counter()
+    for line in diff.splitlines():
+        if line.startswith(("+++", "---")):
+            continue
+        bucket = added if line.startswith("+") else removed if line.startswith("-") else None
+        if bucket is None:
+            continue
+        for word in IDENT.findall(line[1:]):
+            if word in COMMON or not ("_" in word.strip("_") or re.search(r"[a-z][A-Z]", word)):
+                continue
+            bucket[word] += 1
+    both = added + removed
+    ranked = [w for w, _ in both.most_common(MAX_IDENTS)]
+    gone = [w for w in removed if w not in added][:MAX_IDENTS]
+    return ranked, gone
+
+
+def mechanical(diff: str, ticket: str, out: Path) -> list[str]:
+    refs, dates = [], []
+    pattern = re.compile(rf"\b{ticket}\b|PR #[0-9]+|\(#[0-9]+\)|{HISTORY_WORDS}", re.I)
+    current = ""
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            current = line[6:] if line.startswith("+++ b/") else line[4:]
+            continue
+        if not line.startswith("+") or line.startswith("+++"):
+            continue
+        if pattern.search(line):
+            refs.append(f"{current}: {line[1:].strip()[:200]}")
+        if re.search(r"\b20[0-9]{2}-[01][0-9]-[0-3][0-9]\b", line):
+            dates.append(f"{current}: {line[1:].strip()[:200]}")
+    (out / "mech-refs.txt").write_text("\n".join(refs) + "\n")
+    (out / "mech-dates.txt").write_text("\n".join(dates) + "\n")
+    return [f"{len(refs)} ticket/PR/history hits", f"{len(dates)} literal dates"]
+
+
+def related_repo(entry: dict[str, str], idents: list[str], out: Path) -> str:
+    path = os.path.expanduser(entry["path"])
+    head = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], path).strip()
+    ref = f"origin/{entry['branch']}" if entry.get("branch") else head or "origin/main"
+    name = Path(path).name
+    if not git(["rev-parse", "--verify", "-q", ref], path):
+        return f"- {name}: no `{ref}` in {path}; skipped"
+    fetched = git(["log", "-1", "--format=%cr", ref], path).strip()
+    if not idents:
+        return f"- {name}: no identifiers to search for"
+    args = ["grep", "-l", "-w"]
+    for i in idents:
+        args += ["-e", i]
+    hits = [f.split(":", 1)[1] for f in git([*args, ref], path).splitlines() if ":" in f]
+    dest = out / "related" / name
+    for f in hits[:MAX_FILES_PER_REPO]:
+        body = git(["show", f"{ref}:{f}"], path).splitlines()[:MAX_LINES_PER_FILE]
+        target = dest / f
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("\n".join(body) + "\n")
+    more = f" (first {MAX_FILES_PER_REPO} of {len(hits)})" if len(hits) > MAX_FILES_PER_REPO else ""
+    return f"- {name} @ {ref}, last commit {fetched}: {len(hits)} files mention changed identifiers{more} → {dest}"
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--diff", required=True)
+    ap.add_argument("--files", required=True)
+    ap.add_argument("--repo-name", required=True)
+    ap.add_argument("--out", required=True)
+    a = ap.parse_args()
+
+    root = git(["rev-parse", "--show-toplevel"], ".").strip() or "."
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    cfg_path = Path.home() / ".claude" / "review-context" / f"{a.repo_name}.json"
+    cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+    diff = Path(a.diff).read_text(errors="replace")
+    in_diff = set(Path(a.files).read_text().split())
+
+    idents, gone = changed_identifiers(diff)
+    lines = [f"# Review context for {a.repo_name}", f"config: {cfg_path if cfg else 'none (defaults)'}", ""]
+
+    lines.append("## Mechanical checks on added lines")
+    lines += [f"- {m}" for m in mechanical(diff, cfg.get("ticket_pattern", DEFAULT_TICKET), out)]
+    lines += [f"  files: {out / 'mech-refs.txt'}, {out / 'mech-dates.txt'}", ""]
+
+    lines.append("## CI, build and deploy files in this repo (read them directly)")
+    found = sorted({p for g in CONVENTION_GLOBS for p in glob.glob(g, root_dir=root, recursive=True)})
+    lines += [f"- {p}" for p in found] or ["- none found"]
+    lines.append("")
+
+    lines.append("## Docs and other surfaces that mention changed identifiers (outside the diff)")
+    doc_globs = DOC_GLOBS + cfg.get("extra_context", [])
+    docs = sorted({p for g in doc_globs for p in glob.glob(g, root_dir=root, recursive=True)} - in_diff)
+    mentions = []
+    for p in docs:
+        try:
+            text = (Path(root) / p).read_text(errors="replace").splitlines()
+        except (OSError, IsADirectoryError):
+            continue
+        for n, t in enumerate(text, 1):
+            if any(re.search(rf"\b{re.escape(i)}\b", t) for i in idents):
+                mentions.append(f"{p}:{n}: {t.strip()[:200]}")
+    (out / "doc-mentions.txt").write_text("\n".join(mentions) + "\n")
+    lines += [f"- {len(mentions)} lines → {out / 'doc-mentions.txt'}", ""]
+
+    lines.append("## Identifiers removed by the diff that are still referenced elsewhere in this repo")
+    stale = []
+    for i in gone:
+        for hit in git(["grep", "-n", "-w", i], root).splitlines():
+            if hit.split(":", 1)[0] not in in_diff:
+                stale.append(hit[:240])
+    (out / "stale-references.txt").write_text("\n".join(stale) + "\n")
+    lines += [f"- {len(stale)} lines → {out / 'stale-references.txt'}", ""]
+
+    lines.append("## Related repos (local clones, no network)")
+    lines += [related_repo(r, idents, out) for r in cfg.get("related_repos", [])] or ["- none configured"]
+    lines += ["", "## Changed identifiers searched for", ", ".join(idents) or "none"]
+
+    manifest = out / "manifest.md"
+    manifest.write_text("\n".join(lines) + "\n")
+    sys.stdout.write(f"EXTERNAL={manifest}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
