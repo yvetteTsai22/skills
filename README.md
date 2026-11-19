@@ -10,6 +10,7 @@ My own agent skills, slash commands, and subagents for Claude Code (skills also 
 | `commands/*.md` | Slash commands (`/pr-review`, `/pre-pr-review`, `/review-pr`, `/address-pr-comments`) | `~/.claude/commands/` |
 | `agents/*.md` | Subagents used by the PR review commands | `~/.claude/agents/` |
 | `bin/*` | Helper scripts the PR review commands and agents call (`ro-gh`, `review-history`, `pr-review-graph`, `prepr-context`, `prepr-loop`) | `~/.claude/bin/` |
+| `crew/LINEAR-PROFILES.example.md` | Linear workspace profiles shared by `wayfinder-crew`, `to-spec-crew`, `to-tickets-crew` and `octa`. Copy to `~/.agents/crew/LINEAR-PROFILES.md` and fill in your ids; the real file is not tracked | not linked |
 | `hooks/ro_bash_guard.py` | PreToolUse guard that keeps the review agents' Bash read-only | `~/.claude/hooks/` |
 
 ## Install
