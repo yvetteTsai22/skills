@@ -11,6 +11,11 @@
 - Committing, pushing, and opening PRs on feature branches is allowed without asking (never push directly to `main`, never force-push shared branches)
 - Merging PRs: only in repos that opt in to autonomy mode (a repo-level `AUTONOMY.md`); everywhere else the user merges
 
+## Orca Workers
+
+- `--worktree new-child` and `current` place the worker in the session's Orca workspace repo, which can differ from the cwd repo. To start a worker with its own checkout, pass `--worktree new-top-level --repo id:<id>`, taking the id from the `orca repo list --json` entry whose path matches `git rev-parse --show-toplevel`.
+- After `worker-start`, check that the receipt's `workspace=<repoId>::<path>` is the target repo; if not, stop the worker before ending the turn.
+
 ## Python Conventions
 
 - When creating a new Python virtual environment, use `uv venv` (not `python3 -m venv`)
