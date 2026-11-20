@@ -22,6 +22,8 @@ Run `link.sh` again after you add a new top-level entry (new skill dir, command,
 | `agents/*.md` | `~/.claude/agents/` | `pr-review-*` subagents launched by the review commands |
 | `bin/*` | `~/.claude/bin/` | Python/bash helpers the commands call by absolute path `~/.claude/bin/...` |
 | `hooks/ro_bash_guard.py` | `~/.claude/hooks/` | PreToolUse guard |
+| `rules/*.md` | `~/.claude/rules/` | Global rules loaded every session. Only rules written here; third-party rule sets (e.g. everything-claude-code `common/`) stay outside this repo. |
+| `global/CLAUDE.md` | `~/.claude/CLAUDE.md` | Global instructions. Public: no emails, account ids, private repo names or paths. Private context goes in memory or a private repo. |
 | `crew/LINEAR-PROFILES.example.md` | not linked | Template for `~/.agents/crew/LINEAR-PROFILES.md` (untracked, holds real Linear ids) used by `wayfinder-crew`, `to-spec-crew`, `to-tickets-crew`, `octa` |
 
 PR review system (the most interconnected part):
