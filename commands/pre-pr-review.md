@@ -512,6 +512,14 @@ rounds only, and nothing re-runs before merge.
 - **Two delta rounds maximum** per `/address-pr-comments` run. Round 2's leftover 🔴/🟡 are not
   fixed: list them under `needs owner decision` with "follow-up ticket".
 - Never writes the clean marker (only a full or gate round does).
+- **`unverified:` items carry forward.** Write every `unverified:` item a delta round reports
+  (bug/reach lists included) to `$(git rev-parse --git-dir)/prepr-unverified.md`. The next round
+  of any kind reads that file and settles each item: a probe, a verifier, or an explicit
+  `manual check needed` entry. Never let one silently drop. (PR #403: a delta round left the
+  `workflow_env.refresh` path `unverified`; no later round looked again until the full round.)
+- **A commit no round has seen blocks `gh pr ready`.** Before ready, compare the last reviewed
+  HEAD (`prepr-clean`, or the last delta's commit list) with `HEAD`; any commit in between gets a
+  delta round first. (PR #403: a603e483c landed after the last delta and was reviewed by none.)
 
 ## Quick mode (`--quick`)
 
