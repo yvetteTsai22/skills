@@ -1,6 +1,6 @@
 ---
 description: Full /pr-review-grade review of the LOCAL branch — committed, unpushed, and uncommitted changes alike; pass a PR number to cover an open PR plus local work. Reports in the terminal; posts nothing.
-argument-hint: "[PR number | base-branch, default main] [--loop] [--reset] [--quick]"
+argument-hint: "[PR number | base-branch, default main] [--loop] [--reset] [--quick] [--delta]"
 ---
 
 Review everything on this branch that isn't on the base yet, **before** opening a PR:
@@ -25,16 +25,16 @@ Make a todo list first.
 PR — pushed commits, local unpushed commits, and uncommitted changes — in one diff, so it replaces
 `/pr-review` for a fix loop that must not commit. Before extracting:
 
-Arguments: `[PR number | base-branch] [--loop] [--reset] [--quick]`. `--loop` = this run is one round of a
+Arguments: `[PR number | base-branch] [--loop] [--reset] [--quick] [--delta]`. `--delta` = review only the commits `/address-pr-comments` just pushed (see "Delta mode"). `--loop` = this run is one round of a
 fix loop (see "Fix loop"); `--reset` = discard the loop state and start at round 1; `--quick` = a
 cheap mid-work check (see "Quick mode"), never combined with `--loop`.
 
 ```bash
 set -- $ARGUMENTS
-TARGET=""; LOOP=0; RESET=0; QUICK=0
+TARGET=""; LOOP=0; RESET=0; QUICK=0; DELTA=0
 # Allowlisted read-only gh wrapper; this command never writes to GitHub.
 GH=gh; ~/.claude/bin/ro-gh repo view --json name >/dev/null 2>&1 && GH=~/.claude/bin/ro-gh
-for a in "$@"; do case "$a" in --loop) LOOP=1 ;; --reset) RESET=1 ;; --quick) QUICK=1 ;; *) TARGET=$a ;; esac; done
+for a in "$@"; do case "$a" in --loop) LOOP=1 ;; --reset) RESET=1 ;; --quick) QUICK=1 ;; --delta) DELTA=1 ;; *) TARGET=$a ;; esac; done
 [ "$QUICK" = 1 ] && [ "$LOOP" = 1 ] && echo "QUICK_AND_LOOP: stop, --quick cannot run as a loop round"
 if [[ "$TARGET" =~ ^#?[0-9]+$ ]]; then
   PR=${TARGET#\#}
@@ -342,14 +342,13 @@ additions the frozen template allows):
     examples that still describe the old name, shape or behaviour, and docs that hardcode a date,
     a count or a name the code now derives."**
 
-**No push of unreviewed fixes.** A commit that fixes review findings (ours or a reviewer's) is
-not pushed until a round (delta or full) has reviewed it. Before suggesting `git push`, check
-`[ "$(cat "$(git rev-parse --git-dir)/prepr-clean" 2>/dev/null)" = "$(git rev-parse HEAD)" ]`, or
-that the last loop round's tree matches the working tree; otherwise say "fixes not reviewed yet: run
-`/pre-pr-review <PR> --loop` first". (PR #216: a fix pushed without a delta round introduced the
-frontmatter-past-prefix bug that Copilot then caught.)
+**Push first, review in parallel.** Pushing fixes does not wait for this review: GitHub CI runs
+the full suite while a delta review runs here. What waits is **posting** replies and `gh pr ready`:
+neither happens until the delta review of every pushed fix commit is clean (or its leftovers are
+deferred to an approved ticket) and CI is green. A fix commit no review round ever saw is the gap
+that leaked bugs before (PR #216, PR #399): pushed early is fine, never reviewed is not.
 
-A lighter inline review (e.g. `caveman-review`) never substitutes for this command before a push:
+A lighter inline review (e.g. `caveman-review`) never substitutes for this command's delta review:
 fixes are new code and must go through the full legs again. **`/code-review` (ECC) does not
 substitute for this command before `gh pr ready` either.** One `/code-review` pass is enough to open
 a **draft** PR so Copilot can start; the loop then runs locally with the PR number.
@@ -498,6 +497,21 @@ mentions only the retro path, never holds the report for it; a delta round's fin
 reviews by later rounds.
 
 Without `--loop`: ask whether to fix the findings. Do not fix, commit, push, or open the PR unasked.
+
+## Delta mode (`--delta`)
+
+Used by `/address-pr-comments` step 6, right after it pushes, while GitHub CI runs. The full
+eight-leg round runs **once**, when the PR first goes ready; fixes for review comments get delta
+rounds only, and nothing re-runs before merge.
+
+- Diff: the commits listed in the caller's `$D/commits.txt` (`git diff <first>^ <last>`), written
+  to `$SCRATCHPAD/prepr.delta.diff`; `$D` (whole branch) as context. No local build or full suite.
+- Legs: `pr-review-bugs` + `pr-review-reach` + `pr-review-design`, plus `pr-review-spec`
+  (description check only) in PR mode, then verifiers. Same frozen template and the delta-round
+  extra line from "Fix loop"; the fix-completeness and probe lines always apply.
+- **Two delta rounds maximum** per `/address-pr-comments` run. Round 2's leftover 🔴/🟡 are not
+  fixed: list them under `needs owner decision` with "follow-up ticket".
+- Never writes the clean marker (only a full or gate round does).
 
 ## Quick mode (`--quick`)
 
