@@ -7,6 +7,8 @@ set -euo pipefail
 #   agents/*   -> ~/.claude/agents/
 #   bin/*      -> ~/.claude/bin/
 #   hooks/*    -> ~/.claude/hooks/
+#   rules/*.md -> ~/.claude/rules/
+#   global/CLAUDE.md -> ~/.claude/CLAUDE.md
 # Each entry is a symlink into this repo, so edits here take effect at once.
 #
 # An existing real file or directory at a target path is moved to
@@ -54,6 +56,14 @@ for kind in commands agents bin hooks; do
     link "$file" "$HOME/.claude/$kind/$(basename "$file")"
   done
 done
+
+mkdir -p "$HOME/.claude/rules"
+for file in "$REPO"/rules/*.md; do
+  [ -f "$file" ] || continue
+  link "$file" "$HOME/.claude/rules/$(basename "$file")"
+done
+
+link "$REPO/global/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
 
 [ "$DRY_RUN" = 1 ] && echo "(dry run, nothing changed)"
 exit 0

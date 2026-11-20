@@ -15,6 +15,8 @@ This is a personal, evolving collection. You’re welcome to browse it, adapt th
 | [`agents/`](agents/) | Subagent instructions used by the pull request review commands. |
 | [`bin/`](bin/) | Helper scripts used by review workflows. |
 | [`hooks/`](hooks/) | A Bash guard used to keep review-agent shell access read-only. |
+| [`rules/`](rules/) | Global rules for Claude Code, loaded in every session: library docs lookup, Mermaid labels, research source criteria, GitNexus usage. |
+| [`global/CLAUDE.md`](global/CLAUDE.md) | The global Claude Code instructions file: language, git and Python conventions. |
 | [`crew/`](crew/) | Example configuration for workflows that use Linear. |
 | [`scripts/link.sh`](scripts/link.sh) | Optional installer that symlinks repository files into Claude Code and Agent Skills directories. |
 
@@ -26,7 +28,7 @@ Open any skill’s `SKILL.md` and follow its instructions in a compatible assist
 
 ## Install the Claude Code workflows
 
-The installer links skills into `~/.claude/skills/` and `~/.agents/skills/`, and links commands, agents, helper scripts, and hooks into their corresponding `~/.claude/` directories.
+The installer links skills into `~/.claude/skills/` and `~/.agents/skills/`, and links commands, agents, helper scripts, hooks, rules, and the global `CLAUDE.md` into their corresponding `~/.claude/` locations.
 
 ```bash
 git clone https://github.com/yvetteTsai22/skills.git
