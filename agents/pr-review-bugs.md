@@ -63,6 +63,10 @@ the original bug did not involve (e.g. `except RuntimeError` around one call, or
 - **Ambiguous outcome.** For each non-idempotent remote call (rotation, write), what happens when it
   succeeded server-side but the client saw a timeout or transport error?
 - **Stale time.** Is a `now` captured before an `await` used to stamp or judge something after it?
+- **Termination of new triggers.** For every retry, wake-up, re-trigger or loop path the PR adds,
+  ask whether it still stops when the event it reacts to is caused by the retried thing itself
+  (two always-failing peers re-triggering each other), and whether it bypasses a bound the code
+  already had for that case. Give the two-peer case as a `probe:`.
 
 ## Prior reviewer comments
 
