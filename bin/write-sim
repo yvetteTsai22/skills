@@ -62,15 +62,34 @@ Return ONLY a JSON object, no prose, with these keys:
   "notes": one sentence on the biggest weakness."""
 
 
+USAGE_KEYS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+usage: dict = {}  # per-case token and cost totals, reset by run_case
+
+
+def add_usage(out: dict) -> None:
+    u = out.get("usage") or {}
+    for k in USAGE_KEYS:
+        usage[k] = usage.get(k, 0) + (u.get(k) or 0)
+    usage["cost_usd"] = round(usage.get("cost_usd", 0) + (out.get("total_cost_usd") or 0), 4)
+    usage["calls"] = usage.get("calls", 0) + 1
+
+
 def claude(prompt: str, system: str, model: str | None) -> str:
     cmd = ["claude", "-p", prompt, "--append-system-prompt", system, "--tools", "",
-           "--no-session-persistence", "--output-format", "text"]
+           "--no-session-persistence", "--output-format", "json",
+           # skip user hooks, plugins, skills and MCP: they add ~17k-150k tokens per call and leak
+           # the user's setup into a test that should see only the skill under test
+           "--setting-sources", "project", "--disable-slash-commands", "--strict-mcp-config"]
     if model:
         cmd += ["--model", model]
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, cwd=RUNS)
     if res.returncode != 0:
         raise RuntimeError(f"claude exited {res.returncode}: {res.stderr.strip()[-300:]}")
-    return res.stdout.strip()
+    out = json.loads(res.stdout)
+    add_usage(out)
+    if out.get("is_error"):
+        raise RuntimeError(f"claude error: {str(out.get('result'))[:300]}")
+    return (out.get("result") or "").strip()
 
 
 def find_skill(name: str) -> Path | None:
@@ -183,13 +202,14 @@ def run_case(case_id: str, names: list[str], target: str, args) -> None:
     if not used:
         raise RuntimeError(f"no skill found among {names}")
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    usage.clear()
     turns = interview(case, skill_text, args.rounds, args.model)
     piece = write_piece(case, skill_text, turns, args.model)
     scores = judge(case, piece, turns, args.model)
     scores["material"] = material(case, turns, args.model)
     record = {"time": stamp, "case": case_id, "target": target, "label": args.label,
               "skills_used": used, "skills_missing": missing, "model": args.model or "default",
-              "interview_turns": len(turns), "scores": scores, "composite": composite(scores)}
+              "interview_turns": len(turns), "scores": scores, "composite": composite(scores), "usage": dict(usage)}
     run_file = RUNS / f"{stamp}-{case_id}.json"
     run_file.write_text(json.dumps({**record, "transcript": turns, "piece": piece}, ensure_ascii=False, indent=2))
     prev = previous(case_id, target)
@@ -199,6 +219,7 @@ def run_case(case_id: str, names: list[str], target: str, args) -> None:
         f"delta {record['composite'] - prev['composite']:+.1f} vs {prev['time']} ({prev.get('label') or '-'})")
     print(f"== {case_id} [{target}] composite={record['composite']} {delta}")
     print(f"   {json.dumps(scores, ensure_ascii=False)}")
+    print(f"   usage: {json.dumps(usage)}")
     if missing:
         print(f"   skipped missing skills: {', '.join(missing)}")
     print(f"   run: {run_file}")
