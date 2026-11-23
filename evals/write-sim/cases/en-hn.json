@@ -1,0 +1,5 @@
+{
+  "platform": "Hacker News submission (Show HN post with title and the first comment text)",
+  "task": "Write a Show HN title (under 80 characters) and the author's first comment (250-450 words) introducing the project.",
+  "brief": "Project (fictional): tidepool, a 1,900-line Go CLI that diffs two Postgres schemas and prints the migration SQL. Built it over 6 weekends because our team broke production twice in 2025 when a column rename was applied as drop+add, losing 40,000 rows of appointment notes. It handles renames by asking you interactively instead of guessing. Limitations: no support for partitioned tables yet; tested only on Postgres 15 and 16. MIT licensed. I want feedback on whether interactive rename prompts are annoying in CI (there is a --rename-map file flag for that). I do not sell anything; there is no paid version."
+}

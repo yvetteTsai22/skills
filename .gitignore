@@ -3,6 +3,7 @@
 __pycache__/
 .claude/worktrees/
 .claude/settings.local.json
+evals/write-sim/runs/
 
 # Book chapter summaries stay local in ~/.agents/skills (TSA-239); never commit them here.
 skills/content-from-zero/

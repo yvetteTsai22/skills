@@ -1,0 +1,5 @@
+{
+  "platform": "English personal blog",
+  "task": "Write an English blog post of 900-1400 words.",
+  "brief": "Topic: what I learned rewriting our billing service three times. Fictional experience: I am a backend engineer at a 30-person SaaS for dental clinics. Rewrite 1 (2022) moved from a cron script to a queue; took 5 weeks, cut failed invoices from 4% to 1.2%. Rewrite 2 (2023) split it into 4 microservices; took 11 weeks; on-call pages went from 2 a month to 9 a month; I regret it. Rewrite 3 (2025) merged it back into one service with an idempotency table; took 3 weeks; pages back to 1 a month. A clinic owner in Ohio once got billed 3 times for the same month and called our CEO at 6am. My opinion: the second rewrite was me wanting a nicer diagram, not a customer problem. Rule I now follow: I only rewrite when I can name the customer who is hurt by the current version. I am not sure whether I would have learned this without making the mistake."
+}
