@@ -191,6 +191,27 @@ Run silently before presenting the draft. Fix issues first.
 - The hook gets them in the room. The re-hook slams the door behind them. Every line after earns the next line.
 - The post should be strong enough with zero hashtags and zero emoji.
 
+## How the Feed Ranks Posts (2026 research)
+
+LinkedIn rebuilt its feed in March 2026 and published how it works. Write for these signals:
+
+- **Long dwell** and **contribution** (comments, shares, reactions) are the two actions the ranking model learns from. A post that holds the reader 60+ seconds and draws real comments travels; a skimmed post does not. This is why the body must earn each next line.
+- **Out-of-network reach goes by topic.** The feed shows posts to people who do not follow the author, on topics they care about, even in different words. Keep one topic per post and name it in plain words early.
+- **Demoted by name**: "Comment 'Yes' if you agree" style bait, video with unrelated text, recycled thought leadership, engagement pods, comment automation. The CTA question must be one a reader answers with their own experience.
+- **Comments after posting count.** Plan to reply to early comments with a real answer; replies extend the conversation the ranking reads.
+- **Links**: LinkedIn published no penalty figure. Practitioners report lower reach for posts with an outbound link, and say the first-comment workaround no longer helps. If the post needs a link, make the post stand on its own without it.
+
+Numbers circulating as "the algorithm" (saves worth 5x a like, -60% for links, ideal posting hour) are third-party estimates, not LinkedIn figures; do not cite them in the post.
+
+### Sources
+
+Borrow tier (ideas only), under `rules/research-source-criteria.md`. Checked 2026-11-23.
+
+- Hristo Danchev, LinkedIn Engineering, "Engineering the next generation of LinkedIn's Feed" (2026-03-12): https://www.linkedin.com/blog/engineering/feed/engineering-the-next-generation-of-linkedins-feed (official), summarised with Tim Jurka's member-facing post by Melanie Goodman, "LinkedIn Algorithm 2026: What LinkedIn Actually Published": https://melaniegoodmanlinkedinconsultant.substack.com/p/he-corrected-himself-in-public-we and PPC Land, "LinkedIn rebuilds its feed from scratch": https://ppc.land/linkedin-rebuilds-its-feed-from-scratch-with-llms-and-gpu-powered-ranking/ (two independent sources).
+- Link and first-comment reach, reply to comments: SocialPilot, "How the LinkedIn Algorithm Works: September 2026 Update": https://www.socialpilot.co/blog/linkedin-algorithm, citing Richard van der Blom's Algorithm Insights report (borrow: practitioner consensus across two sources; figures not from LinkedIn).
+
+Dropped: per-format engagement rates and "golden hour" timing rules (third-party, numbers differ between sources).
+
 ## Examples
 
 See `examples.md` in this directory for 5 annotated high-performing post examples (listicle, story arc, framework, contrarian, observation styles).
