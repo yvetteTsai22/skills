@@ -20,9 +20,18 @@ argument-hint: "[work|personal] [spec id/URL]"
 - Blocking edges: native `blocks` / `blockedBy`, second pass after all ids exist.
 - Never close or modify the spec, beyond it gaining children.
 
-## Codebase exploration (step 2 of to-tickets)
+## Codebase exploration (step 2 of to-tickets, required here)
 
-Use 2–3 `caveman:cavecrew-investigator` subagents in parallel for prefactor opportunities and seams; paraphrase their output before showing it.
+Step 2 always runs, overriding to-tickets' "optional". Use 2–3 `caveman:cavecrew-investigator` subagents in parallel for prefactor opportunities, seams, and **code blockers**: confirm each row of the spec's Code blockers section still holds, and find any the spec missed (state holders, build side effects, authorization unit, as defined in to-spec-crew). Paraphrase their output before showing it.
+
+## Ticket template additions (override to-tickets' issue template)
+
+Each ticket carries, after Acceptance criteria:
+
+- **Code blockers**: the spec rows this ticket's behaviour touches, copied with their decision. A ticket inherits the whole row, so a line like "passed through" travels with the ACL-unit decision beside it.
+- **Rollout prerequisites**: the spec's rollout items this ticket introduces. Keep these out of acceptance criteria: they are checked between merge and deploy, and the PR carries them into its "For a person" section.
+
+Omit a section when no row applies. Done when every spec row and rollout item sits in at least one ticket.
 
 ## Quiz
 
