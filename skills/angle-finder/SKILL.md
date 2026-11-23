@@ -43,8 +43,10 @@ A table, one row per angle:
 
 | # | Angle (one sentence, headline-ready) | Method | Role or pair | Emotion + comment source | Author material it uses |
 
-Then: the default angle, which angle you recommend and why (fresh, and the author's material carries it), and one runner-up.
+Then: the default angle, your pick, and one runner-up. Pick by distance from the default angle first: the farthest angle the author's material still carries wins. A safer angle that sits next to the default loses, however well it reads.
 
 Done when: 5-10 rows; every row names its method and its emotion source; none repeats the default angle; one pick is made.
 
-When a piece is written next, state the picked angle in its first lines and keep the whole piece on it.
+## Writing the piece in the same run
+
+Run steps 2-5 before drafting, even when only the piece is asked for. Then the piece is told from the picked role or pair: the first paragraph shows whose side or which pairing it is, the title carries it, and every section serves it. The default angle appears at most once, as the view the piece answers.
