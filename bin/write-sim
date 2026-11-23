@@ -7,6 +7,8 @@ so no role inherits another role's context:
   writer  - loads the skill(s) under test; interviews the author, then writes the piece
   judge   - scores the reader-visible output against a rubric; never sees which skill ran (blind,
             as in darwin-skill)
+  material - audits the interview: share of the brief's stories and numbers the author's answers
+            revealed (scores.material.coverage); not part of the composite
 
 Usage:
   write-sim --skill article-writing [--case zh-blog] [--label v1] [--rounds 4] [--model M]
@@ -144,6 +146,22 @@ def judge(case: dict, piece: str, turns: list[dict], model: str | None) -> dict:
     return s
 
 
+def material(case: dict, turns: list[dict], model: str | None) -> dict:
+    """How much of the brief's concrete material (stories, numbers) the interview drew out."""
+    answers = "\n".join(f"- {t['a']}" for t in turns) or "(no answers)"
+    out = claude(f"BRIEF:\n{case['brief']}\n\nAUTHOR ANSWERS:\n{answers}",
+                 "You audit an interview. List every concrete story (a specific event) and every number "
+                 "in the BRIEF as separate items. Mark an item revealed if the AUTHOR ANSWERS state it. "
+                 'Return ONLY JSON: {"items": [{"item": str, "revealed": bool}]}', model)
+    m = re.search(r"\{.*\}", out, re.S)
+    if not m:
+        raise RuntimeError(f"material audit returned no JSON: {out[:200]}")
+    items = json.loads(m.group(0)).get("items", [])
+    hit = sum(1 for i in items if i.get("revealed"))
+    return {"brief_items": len(items), "revealed": hit,
+            "coverage": round(100 * hit / max(len(items), 1), 1)}
+
+
 def composite(s: dict) -> float:
     """One number for comparison: higher is better. Weights are a starting point, not a standard."""
     score = 4 * s["angle_novelty"] + (20 if s["highlight_in_range"] else 0)
@@ -168,6 +186,7 @@ def run_case(case_id: str, names: list[str], target: str, args) -> None:
     turns = interview(case, skill_text, args.rounds, args.model)
     piece = write_piece(case, skill_text, turns, args.model)
     scores = judge(case, piece, turns, args.model)
+    scores["material"] = material(case, turns, args.model)
     record = {"time": stamp, "case": case_id, "target": target, "label": args.label,
               "skills_used": used, "skills_missing": missing, "model": args.model or "default",
               "interview_turns": len(turns), "scores": scores, "composite": composite(scores)}
@@ -192,7 +211,8 @@ def history(case_id: str | None) -> None:
     for l in SCORES.read_text().splitlines():
         r = json.loads(l)
         if case_id is None or r["case"] == case_id:
-            print(f"{r['time']}  {r['case']:<12} {r['target']:<22} {r.get('label') or '-':<10} {r['composite']}")
+            cov = r["scores"].get("material", {}).get("coverage", "-")
+            print(f"{r['time']}  {r['case']:<12} {r['target']:<22} {r.get('label') or '-':<10} {r['composite']:<6} material={cov}")
 
 
 def main() -> None:
