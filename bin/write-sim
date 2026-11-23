@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""Headless writing simulation: score a writing skill (or the blog pipeline) on fixed cases.
+
+Each case runs separate `claude -p` processes, one fresh process per turn (as bin/prepr-loop does),
+so no role inherits another role's context:
+  author  - plays the writer from a fictional brief; answers only what it is asked
+  writer  - loads the skill(s) under test; interviews the author, then writes the piece
+  judge   - scores the reader-visible output against a rubric; never sees which skill ran (blind,
+            as in darwin-skill)
+
+Usage:
+  write-sim --skill article-writing [--case zh-blog] [--label v1] [--rounds 4] [--model M]
+  write-sim --pipeline [...]          # interview > angle-finder > article-scaffold > article-writing
+                                      #   > golden-line > ste80-humanizer (missing skills are skipped)
+  write-sim --history [--case ID]     # print the score log
+
+Cases: evals/write-sim/cases/<id>.json. Scores: appended to evals/write-sim/scores.jsonl, and each
+run prints the delta against the previous record for the same case and target. Run transcripts
+go to evals/write-sim/runs/ (gitignored).
+
+Never fails the caller: on any error it writes an "unavailable" note and exits 0.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import subprocess
+import sys
+import traceback
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SIM = ROOT / "evals" / "write-sim"
+CASES = SIM / "cases"
+SCORES = SIM / "scores.jsonl"
+RUNS = SIM / "runs"
+SKILL_DIRS = [ROOT / "skills", Path.home() / ".agents" / "skills", Path.home() / ".claude" / "skills"]
+PIPELINE = ["interview", "angle-finder", "article-scaffold", "article-writing", "golden-line", "ste80-humanizer"]
+TIMEOUT = 600
+DONE = "INTERVIEW_DONE"
+
+RUBRIC = """Score the piece below. Judge only what a reader sees: the angle, the title, the text.
+Return ONLY a JSON object, no prose, with these keys:
+  "angle_novelty": integer 1-10. 1 = the angle every other post on this topic takes; 10 = an angle
+     a reader has not seen, that still follows from the material.
+  "sentences": integer, total sentences in the body.
+  "highlight_sentences": integer, sentences a reader would underline or quote (concrete, memorable,
+     standing alone). Be strict.
+  "ai_tells": integer, count of: not-X-but-Y frames, rule-of-three lists, one-line paragraph closers
+     after every section, stock AI words (delve, tapestry, testament, landscape, crucial, robust,
+     seamless, 不僅…更…, 賦能, 底層邏輯 used as filler), em-dash chains, chatbot residue.
+  "author_quotes": integer, how many of the AUTHOR ANSWERS phrases appear in the piece verbatim or
+     near-verbatim (same specific wording, not just the same fact).
+  "invented_facts": integer, concrete facts (numbers, names, events) in the piece that are NOT in the
+     author answers.
+  "notes": one sentence on the biggest weakness."""
+
+
+def claude(prompt: str, system: str, model: str | None) -> str:
+    cmd = ["claude", "-p", prompt, "--append-system-prompt", system, "--tools", "",
+           "--no-session-persistence", "--output-format", "text"]
+    if model:
+        cmd += ["--model", model]
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, cwd=RUNS)
+    if res.returncode != 0:
+        raise RuntimeError(f"claude exited {res.returncode}: {res.stderr.strip()[-300:]}")
+    return res.stdout.strip()
+
+
+def find_skill(name: str) -> Path | None:
+    for d in SKILL_DIRS:
+        p = d / name / "SKILL.md"
+        if p.is_file():
+            return p
+    return None
+
+
+def load_skills(names: list[str]) -> tuple[str, list[str], list[str]]:
+    """Return the skill text for the writer, the skills loaded, and the skills missing."""
+    parts, used, missing = [], [], []
+    for n in names:
+        p = find_skill(n)
+        if p is None:
+            missing.append(n)
+            continue
+        used.append(n)
+        parts.append(f"=== SKILL: {n} ===\n{p.read_text()}")
+        lang_files = [p.parent / f for f in ("zh.md", "en.md") if (p.parent / f).is_file()]
+        for f in lang_files:
+            parts.append(f"=== {n}/{f.name} (use only the file matching the piece's language) ===\n{f.read_text()}")
+    return "\n\n".join(parts), used, missing
+
+
+def author_system(case: dict) -> str:
+    return ("You are the author of a piece of writing, being interviewed by your writer. Here is your "
+            "private brief (topic, experiences, numbers, opinions):\n\n" + case["brief"] +
+            "\n\nAnswer ONLY the question asked, in first person, in the brief's language, 1-4 "
+            "sentences, in your own plain spoken voice. Do not volunteer facts that were not asked "
+            "for. If the brief has no answer, say you are not sure. Never write the piece yourself.")
+
+
+def writer_system(skill_text: str, case: dict) -> str:
+    return ("You are a writer. Follow these skills as your method:\n\n" + skill_text +
+            f"\n\nTask: {case['task']}\nYou cannot use tools. Use only facts the author gives you; "
+            "never invent numbers, names or events.")
+
+
+def interview(case: dict, skill_text: str, rounds: int, model: str | None) -> list[dict]:
+    turns: list[dict] = []
+    for _ in range(rounds):
+        so_far = "\n".join(f"Q: {t['q']}\nA: {t['a']}" for t in turns) or "(none yet)"
+        q = claude("Interview so far:\n" + so_far + "\n\nAsk the author your ONE next question to "
+                   "gather material (one question only, no preamble). If you already have enough "
+                   f"material, reply exactly {DONE}.", writer_system(skill_text, case), model)
+        if DONE in q:
+            break
+        a = claude(f"Question from your writer: {q}", author_system(case), model)
+        turns.append({"q": q, "a": a})
+    return turns
+
+
+def write_piece(case: dict, skill_text: str, turns: list[dict], model: str | None) -> str:
+    transcript = "\n".join(f"Q: {t['q']}\nA: {t['a']}" for t in turns)
+    return claude("Interview transcript:\n" + transcript + "\n\nWrite the finished piece now. Start "
+                  "with a line `ANGLE: <one sentence>`, then `TITLE: <title>`, then the body. Output "
+                  "nothing else.", writer_system(skill_text, case), model)
+
+
+def judge(case: dict, piece: str, turns: list[dict], model: str | None) -> dict:
+    answers = "\n".join(f"- {t['a']}" for t in turns)
+    out = claude(f"PLATFORM: {case['platform']}\n\nAUTHOR ANSWERS:\n{answers}\n\nPIECE:\n{piece}",
+                 "You are a blind, strict editor scoring a draft. " + RUBRIC, model)
+    m = re.search(r"\{.*\}", out, re.S)
+    if not m:
+        raise RuntimeError(f"judge returned no JSON: {out[:200]}")
+    s = json.loads(m.group(0))
+    total = max(int(s.get("sentences", 0)), 1)
+    s["highlight_rate"] = round(100 * int(s.get("highlight_sentences", 0)) / total, 1)
+    s["highlight_in_range"] = 10 <= s["highlight_rate"] <= 40
+    return s
+
+
+def composite(s: dict) -> float:
+    """One number for comparison: higher is better. Weights are a starting point, not a standard."""
+    score = 4 * s["angle_novelty"] + (20 if s["highlight_in_range"] else 0)
+    score += min(int(s["author_quotes"]), 5) * 4 - int(s["ai_tells"]) * 3 - int(s["invented_facts"]) * 5
+    return float(score)
+
+
+def previous(case_id: str, target: str) -> dict | None:
+    if not SCORES.is_file():
+        return None
+    rows = [json.loads(l) for l in SCORES.read_text().splitlines() if l.strip()]
+    rows = [r for r in rows if r["case"] == case_id and r["target"] == target]
+    return rows[-1] if rows else None
+
+
+def run_case(case_id: str, names: list[str], target: str, args) -> None:
+    case = json.loads((CASES / f"{case_id}.json").read_text())
+    skill_text, used, missing = load_skills(names)
+    if not used:
+        raise RuntimeError(f"no skill found among {names}")
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    turns = interview(case, skill_text, args.rounds, args.model)
+    piece = write_piece(case, skill_text, turns, args.model)
+    scores = judge(case, piece, turns, args.model)
+    record = {"time": stamp, "case": case_id, "target": target, "label": args.label,
+              "skills_used": used, "skills_missing": missing, "model": args.model or "default",
+              "interview_turns": len(turns), "scores": scores, "composite": composite(scores)}
+    run_file = RUNS / f"{stamp}-{case_id}.json"
+    run_file.write_text(json.dumps({**record, "transcript": turns, "piece": piece}, ensure_ascii=False, indent=2))
+    prev = previous(case_id, target)
+    with SCORES.open("a") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    delta = "first record" if prev is None else (
+        f"delta {record['composite'] - prev['composite']:+.1f} vs {prev['time']} ({prev.get('label') or '-'})")
+    print(f"== {case_id} [{target}] composite={record['composite']} {delta}")
+    print(f"   {json.dumps(scores, ensure_ascii=False)}")
+    if missing:
+        print(f"   skipped missing skills: {', '.join(missing)}")
+    print(f"   run: {run_file}")
+
+
+def history(case_id: str | None) -> None:
+    if not SCORES.is_file():
+        print("no scores yet")
+        return
+    for l in SCORES.read_text().splitlines():
+        r = json.loads(l)
+        if case_id is None or r["case"] == case_id:
+            print(f"{r['time']}  {r['case']:<12} {r['target']:<22} {r.get('label') or '-':<10} {r['composite']}")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--skill", action="append", help="skill under test (repeatable)")
+    g.add_argument("--pipeline", action="store_true")
+    g.add_argument("--history", action="store_true")
+    ap.add_argument("--case", action="append", help="case id (default: all)")
+    ap.add_argument("--label", default="", help="version label stored with the score")
+    ap.add_argument("--rounds", type=int, default=4, help="max interview questions")
+    ap.add_argument("--model")
+    args = ap.parse_args()
+    if args.history:
+        history(args.case[0] if args.case else None)
+        return
+    RUNS.mkdir(parents=True, exist_ok=True)
+    names = PIPELINE if args.pipeline else args.skill
+    target = "pipeline" if args.pipeline else "+".join(args.skill)
+    case_ids = args.case or sorted(p.stem for p in CASES.glob("*.json"))
+    for cid in case_ids:
+        try:
+            run_case(cid, names, target, args)
+        except Exception as e:  # one failed case must not stop the rest
+            print(f"== {cid}: unavailable ({type(e).__name__}: {e})")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except SystemExit as e:
+        if e.code not in (0, None):
+            print("write-sim: unavailable (bad arguments; see --help)")
+    except Exception:
+        print("write-sim: unavailable\n" + traceback.format_exc(limit=2))
+    sys.exit(0)
