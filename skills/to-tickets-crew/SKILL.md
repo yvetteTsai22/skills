@@ -39,7 +39,7 @@ Show the breakdown as a numbered list (title / blocked by / what it delivers), t
 
 ## Voice
 
-Chat: caveman `full`, in the user's language. Ticket bodies in Linear: English, plain full sentences.
+Chat: caveman `full`, in the user's language. Ticket bodies in Linear: plain full sentences, language by profile (personal → 繁體中文（台灣書面語）; work or unknown → English).
 
 ## Session end
 
