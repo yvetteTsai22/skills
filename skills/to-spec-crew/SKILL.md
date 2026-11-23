@@ -46,7 +46,7 @@ to-spec's only question to the user is the test seams. Ask it as one question: r
 
 ## Voice
 
-Chat: caveman `full`, in the user's language. Spec body in Linear: English, plain full sentences.
+Chat: caveman `full`, in the user's language. Spec body in Linear: plain full sentences, language by profile (personal → 繁體中文（台灣書面語）; work or unknown → English).
 
 ## Session end
 
